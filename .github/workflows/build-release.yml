@@ -80,6 +80,6 @@ jobs:
             - add_symbols-macos
             - add_symbols-win.exe
           files: |
-            dist/add_symbols-linux
-            dist/add_symbols-macos
-            dist/add_symbols-win.exe
+            dist/add_symbols-linux/add_symbols-linux
+            dist/add_symbols-macos/add_symbols-macos
+            dist/add_symbols-win.exe/add_symbols-win.exe

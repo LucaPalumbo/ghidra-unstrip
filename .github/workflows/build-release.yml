@@ -41,15 +41,28 @@ jobs:
         run: |
           pyinstaller --name add_symbols --onefile add_symbols.py
 
-      - name: Rename built file
+      - name: Prepare release package
+        shell: bash
         run: |
-          mv dist/add_symbols${{ matrix.exe_suffix }} ${{ matrix.artifact_name }}
+          mkdir -p release_package
+          mv dist/add_symbols${{ matrix.exe_suffix }} release_package/add_symbols${{ matrix.exe_suffix }}
+          cp unstrip.py release_package/
+
+      - name: Create ZIP archive
+        shell: bash
+        run: |
+          cd release_package
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            7z a ../${{ matrix.artifact_name }}.zip *
+          else
+            zip -r ../${{ matrix.artifact_name }}.zip *
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
 
   release:
     name: Create GitHub Release
@@ -75,11 +88,12 @@ jobs:
           body: |
             Automatic release for version ${{ github.ref_name }}
 
-            Includes:
-            - add_symbols-linux
-            - add_symbols-macos
-            - add_symbols-win.exe
+            Each archive contains:
+            - add_symbols executable (compiled binary)
+            - unstrip.py (required script)
+            
+            Download the appropriate version for your platform and extract the archive.
           files: |
-            dist/add_symbols-linux/add_symbols-linux
-            dist/add_symbols-macos/add_symbols-macos
-            dist/add_symbols-win.exe/add_symbols-win.exe
+            dist/add_symbols-linux/add_symbols-linux.zip
+            dist/add_symbols-macos/add_symbols-macos.zip
+            dist/add_symbols-win.exe/add_symbols-win.exe.zip

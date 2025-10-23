@@ -1,4 +1,4 @@
-name: Build and Release add_symbols_lief
+name: Build and Release add_symbols
 
 on:
   push:
@@ -14,13 +14,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: add_symbols_lief-linux
+            artifact_name: add_symbols-linux
             exe_suffix: ""
           - os: windows-latest
-            artifact_name: add_symbols_lief-win.exe
+            artifact_name: add_symbols-win.exe
             exe_suffix: ".exe"
           - os: macos-latest
-            artifact_name: add_symbols_lief-macos
+            artifact_name: add_symbols-macos
             exe_suffix: ""
 
     steps:
@@ -39,11 +39,11 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --name add_symbols_lief --onefile add_symbols_lief.py
+          pyinstaller --name add_symbols --onefile add_symbols.py
 
       - name: Rename built file
         run: |
-          mv dist/add_symbols_lief${{ matrix.exe_suffix }} ${{ matrix.artifact_name }}
+          mv dist/add_symbols${{ matrix.exe_suffix }} ${{ matrix.artifact_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -76,10 +76,10 @@ jobs:
             Automatic release for version ${{ github.ref_name }}
 
             Includes:
-            - add_symbols_lief-linux
-            - add_symbols_lief-macos
-            - add_symbols_lief-win.exe
+            - add_symbols-linux
+            - add_symbols-macos
+            - add_symbols-win.exe
           files: |
-            dist/add_symbols_lief-linux
-            dist/add_symbols_lief-macos
-            dist/add_symbols_lief-win.exe
+            dist/add_symbols-linux
+            dist/add_symbols-macos
+            dist/add_symbols-win.exe

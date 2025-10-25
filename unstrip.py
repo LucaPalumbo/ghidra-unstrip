@@ -1,33 +1,23 @@
 # Add back symbol to stripped ELF file
-# @author Feld
-# @category Symbols
+# @author Feld # @category Symbols
 # @keybinding
 # @menupath
 # @toolbar
 # @runtime PyGhidra
 
-
-# from __main__ import getCurrentProgram, getState
-from ghidra.app.util.bin.format.elf import ElfHeader  # pyright: ignore[reportMissingImports]
-from ghidra.app.util.bin import MemoryByteProvider
+from ghidra.app.util.bin.format.elf import ElfHeader
 from ghidra.app.util.bin import FileByteProvider
 import java.io.File as JFile
 from java.nio.file import AccessMode
 import csv
+import os
 import subprocess
-from pathlib import Path
-
 
 program = getCurrentProgram()
-
 elf_path = program.getExecutablePath()
-
 jfile = JFile(elf_path)
 provider = FileByteProvider(jfile, None, AccessMode.READ)
-memory = program.getMemory()
 base_address = program.getImageBase().getOffset()
-# memory_byte_provider = MemoryByteProvider(memory, program.getImageBase())
-# elf_header = ElfHeader(memory_byte_provider, onError)
 
 
 def onError(e):
@@ -35,55 +25,55 @@ def onError(e):
 
 
 elf_header = ElfHeader(provider, onError)
-file_size = provider.length()
+elf_header.parse()
+sections = elf_header.getSections()
 
-
-def getFunctionLen(function_name):
-    func_manager = program.getFunctionManager()
-    functions = func_manager.getFunctions(True)
-    for func in functions:
-        if func.getName() == function_name:
-            return func.getBody().getNumAddresses()
+# Precompute section map for fast index lookup
+section_map = []
+for i, s in enumerate(sections):
+    start = s.getAddress()
+    end = start + s.getSize()
+    section_map.append((start, end, i))
 
 
 def getNdx(symbol):
     addr = symbol.getAddress().getOffset() - base_address
-    section = elf_header.getSectionLoadHeaderContaining(
-        addr + 1
-    )  # temporary fix for off-by-one error in getSectionLoadHeaderContaining
-    section_index = elf_header.getSectionIndex(section) if section else 0  # SHN_UNDEF
-    return section_index
+    for start, end, idx in section_map:
+        if start <= addr < end:
+            return idx
+    return 0  # SHN_UNDEF
 
 
-def getLableSize(symbol):
-    listing = program.getListing()
+# Precompute function lengths
+func_manager = program.getFunctionManager()
+func_lens = {
+    f.getName(): f.getBody().getNumAddresses() for f in func_manager.getFunctions(True)
+}
+
+listing = program.getListing()
+
+
+def getSymbolSize(symbol):
     try:
         data = listing.getDataAt(symbol.getAddress())
         return data.getLength()
-    except Exception as e:
-        print("Error getting size of Label %s: %s" % (symbol.getName(), e))
+    except:
         return None
 
 
 def gather_information(symbol):
     name = symbol.getName()
-    addr = (
-        symbol.getAddress().getOffset() - base_address
-        if symbol.getAddress().getOffset() - base_address >= 0
-        else 0
-    )
+    addr = max(symbol.getAddress().getOffset() - base_address, 0)
     sym_type = symbol.getSymbolType().toString()
     ndx = getNdx(symbol)
-
     binding = None
     size = None
-    # print("Gathering info for symbol:", name, "Type:", sym_type)
-    if sym_type == "Function":
-        size = getFunctionLen(name)
-        binding = "global"
 
-    if sym_type == "Label":
-        size = getLableSize(symbol)
+    if sym_type == "Function":
+        size = func_lens.get(name)
+        binding = "global"
+    elif sym_type == "Label":
+        size = getSymbolSize(symbol)
         binding = "global" if size is not None else "local"
 
     return {
@@ -96,52 +86,66 @@ def gather_information(symbol):
     }
 
 
-def spawn_add_sym_subroutine(input_elf, symbols_csv, output_elf):
-    current_dir = Path(__file__).resolve().parent
-    exec_path = current_dir / "add_symbols_lief"
-    print("Current script dir:", exec_path)
+def spawn_add_symbol_subroutine(file_origin, file_symbols, file_out):
+    """
+    Finds the path of the script `add_symbol` and executes:
+    ./add_symbol <file_origin> <file_symbols> <file_out>
+    """
+    # Assume `add_symbol` is in the same directory as this script
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    add_symbol_path = os.path.join(script_dir, "add_symbols")
 
-    cmd = [
-        exec_path.__str__(),
-        input_elf,
-        symbols_csv,
-        output_elf,
-    ]
-    print("Spawning add_sym.py subprocess:", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    print("add_sym.py stdout:\n", result.stdout)
-    print("add_sym.py stderr:\n", result.stderr)
-    if result.returncode != 0:
-        raise SystemExit("add_sym.py failed with return code: %d" % result.returncode)
+    if not os.path.isfile(add_symbol_path):
+        print(f"Error: {add_symbol_path} not found.")
+        return
+
+    # Build the command
+    cmd = [add_symbol_path, file_origin, file_symbols, file_out]
+
+    print(f"Executing: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(
+            cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        print("Output:", result.stdout)
+        if result.stderr:
+            print("Errors:", result.stderr)
+    except subprocess.CalledProcessError as e:
+        print("Failed to run add_symbol:", e)
+        print("Output:", e.stdout)
+        print("Errors:", e.stderr)
 
 
+# Filter symbols early
+symbol_table = program.getSymbolTable()
+symbols = [
+    s
+    for s in symbol_table.getDefinedSymbols()
+    if not s.isDynamic() and not s.isExternal()
+]
 
-if __name__ == "__main__":
-    elf_header.parse()
-    sections = elf_header.getSections()
+out_name = elf_path + "_sym.csv"
+print("Writing symbols to:", out_name)
 
-    symbol_table = program.getSymbolTable()
-    symbols = symbol_table.getDefinedSymbols()
+rows = [["name", "addr", "type", "size", "binding", "ndx"]]
 
-    out_name = elf_path + "_sym.csv"
-    print("Writing symbols to:", out_name)
-    with open(out_name, "w") as f:
-        w = csv.writer(f)
-        w.writerow(["name", "addr", "type", "size", "binding", "ndx"])
-        for s in symbols:
-            if s.isDynamic() or s.isExternal():
-                continue
-            info = gather_information(s)
-            w.writerow(
-                [
-                    info["name"],
-                    hex(info["addr"]),
-                    info["type"],
-                    info["size"] if info["size"] is not None else "",
-                    info["binding"] if info["binding"] is not None else "",
-                    info["ndx"],
-                ]
-            )
+for i, symbol in enumerate(symbols):
+    if i % 1000 == 0:
+        print(f"Processing symbol {i} of {len(symbols)}")
+    info = gather_information(symbol)
+    rows.append(
+        [
+            info["name"],
+            hex(info["addr"]),
+            info["type"],
+            info["size"] if info["size"] is not None else "",
+            info["binding"] if info["binding"] is not None else "",
+            info["ndx"],
+        ]
+    )
 
-    spawn_add_sym_subroutine(elf_path, out_name, elf_path + "_unstripped")
-    
+with open(out_name, "w") as f:
+    w = csv.writer(f)
+    w.writerows(rows)
+
+spawn_add_symbol_subroutine(elf_path, out_name, elf_path + "_unstripped")

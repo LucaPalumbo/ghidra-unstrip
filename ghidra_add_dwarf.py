@@ -1,7 +1,8 @@
+# Add symbols and dwarf back to stripped binary
 # -*- coding: utf-8 -*-
 # Add DWARF debug info from Ghidra analysis
 # @author Feld
-# @category PWN
+# @category PWN & REV
 # @keybinding
 # @menupath
 # @toolbar
@@ -169,6 +170,7 @@ def extract_symbols_to_csv(program, output_csv_path):
     # Prepare CSV rows
     rows = [["name", "addr", "type", "size", "binding", "ndx"]]
     
+    # Aggiungi simboli esistenti
     for symbol in symbols:
         info = gather_information(symbol)
         rows.append([
@@ -179,6 +181,99 @@ def extract_symbols_to_csv(program, output_csv_path):
             info["binding"] if info["binding"] is not None else "",
             info["ndx"],
         ])
+    
+    # Estrai stringhe da sezioni dati (.rodata, .data, ecc.)
+    print("  Estrazione stringhe da sezioni dati...")
+    string_count = 0
+    memory = program.getMemory()
+    
+    # Cerca stringhe in tutte le sezioni dati
+    for block in memory.getBlocks():
+        # Solo sezioni dati (non executable, non overlay, non external)
+        if not block.isExecute() and not block.isOverlay() and not block.isExternalBlock():
+            print("    Scansione sezione: %s" % block.getName())
+            
+            # Itera su tutti i dati definiti in questa sezione
+            data_iter = listing.getDefinedData(block.getStart(), True)
+            
+            try:
+                while data_iter.hasNext():
+                    data = data_iter.next()
+                    
+                    # Verifica se è una stringa
+                    if data.hasStringValue():
+                        try:
+                            # Ottieni il valore della stringa
+                            string_value = data.getValue()
+                            if string_value is None:
+                                continue
+                            
+                            # Converti in stringa Python
+                            str_content = str(string_value)
+                            
+                            # Salta stringhe vuote o troppo corte
+                            if len(str_content) < 2:
+                                continue
+                            
+                            # Crea nome simbolo dalla stringa
+                            # Primi 22 caratteri + "..." se supera i 25
+                            if len(str_content) > 25:
+                                symbol_name = str_content[:22] + "..."
+                            else:
+                                symbol_name = str_content
+                            
+                            # Sanitizza il nome (rimuovi caratteri problematici)
+                            # Sostituisci spazi e caratteri speciali con underscore
+                            symbol_name = symbol_name.replace(" ", "_")
+                            symbol_name = symbol_name.replace("\n", "\\n")
+                            symbol_name = symbol_name.replace("\t", "\\t")
+                            symbol_name = symbol_name.replace("\r", "\\r")
+                            symbol_name = symbol_name.replace("\"", "\\\"")
+                            symbol_name = symbol_name.replace("'", "\\'")
+                            symbol_name = symbol_name.replace(",", " ")
+                            
+                            # Verifica che non esista già un simbolo a questo indirizzo
+                            # Usa max(..., 0) per evitare indirizzi negativi
+                            addr = max(data.getAddress().getOffset() - base_address, 0)
+                            
+                            # Controlla se c'è già un simbolo con questo indirizzo nelle rows
+                            already_exists = False
+                            for row in rows[1:]:  # Salta l'header
+                                if row[1] == hex(addr):
+                                    already_exists = True
+                                    break
+                            
+                            if already_exists:
+                                continue
+                            
+                            # Determina l'indice della sezione
+                            ndx = 0
+                            for start, end, idx in section_map:
+                                if start <= addr < end:
+                                    ndx = idx
+                                    break
+                            
+                            # Aggiungi la stringa come simbolo
+                            rows.append([
+                                symbol_name,
+                                hex(addr),
+                                "Label",  # Tipo speciale per stringhe
+                                data.getLength(),
+                                "local",  # Le stringhe sono tipicamente locali
+                                ndx,
+                            ])
+                            
+                            string_count += 1
+                            
+                        except Exception as e:
+                            # Ignora errori su singole stringhe
+                            pass
+                            
+            except Exception as e:
+                print("    [WARN] Errore durante scansione sezione %s: %s" % (block.getName(), str(e)))
+    
+    print("  Trovate %d stringhe aggiuntive" % string_count)
+    print("  Totale simboli: %d" % (len(rows) - 1))  # -1 per l'header
     
     # Write CSV
     with open(output_csv_path, "w") as f:

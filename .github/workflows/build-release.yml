@@ -39,14 +39,13 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --name add_symbols --onefile add_symbols.py
+          pyinstaller add_symbols_standalone.spec
 
       - name: Prepare release package
         shell: bash
         run: |
           mkdir -p release_package
           mv dist/add_symbols${{ matrix.exe_suffix }} release_package/add_symbols${{ matrix.exe_suffix }}
-          cp unstrip.py release_package/
 
       - name: Create ZIP archive
         shell: bash
@@ -88,9 +87,7 @@ jobs:
           body: |
             Automatic release for version ${{ github.ref_name }}
 
-            Each archive contains:
-            - add_symbols executable (compiled binary)
-            - unstrip.py (required script)
+            This archive contains the add_symbols standalone executable.
             
             Download the appropriate version for your platform and extract the archive.
           files: |

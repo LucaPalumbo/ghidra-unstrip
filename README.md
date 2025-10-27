@@ -39,6 +39,8 @@ unzip ghidra-unstrip-linux.zip
 3. **Run** `unstrip.py` (double-click or right-click → Run)
 4. **Wait for completion** (may take a few minutes for large binaries)
 
+
+
 **Output files:**
 
 ```
@@ -47,6 +49,10 @@ binary_symbols             # ELF with symbol table
 binary_symbols.dwarf       # ELF with symbols + DWARF (FINAL)
 binary_symbols.c           # Decompiled source code
 ```
+
+<div align="center">
+  <img src="img/screen.png" alt="Ghidra Unstrip in action" width="800"/>
+</div>
 
 ---
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Wrapper Python per libdwarf Producer API - Creazione DWARF da zero
-Per ricostruire debug info da analisi Ghidra
+Python wrapper for libdwarf Producer API - Creating DWARF from scratch
+For rebuilding debug info from Ghidra analysis
 """
 
 import ctypes
@@ -10,7 +10,7 @@ from ctypes import *
 from enum import IntEnum
 import struct
 
-# Carica la libreria
+# Load the library
 try:
     libdwarf = ctypes.CDLL("libdwarf.so")
 except OSError:
@@ -20,7 +20,7 @@ except OSError:
         libdwarf = ctypes.CDLL("/usr/lib/x86_64-linux-gnu/libdwarf.so")
 
 # ============================================================================
-# Tipi base
+# Base types
 # ============================================================================
 Dwarf_P_Debug = c_void_p
 Dwarf_Error = c_void_p
@@ -34,13 +34,13 @@ Dwarf_Small = c_uint8
 Dwarf_Addr = c_uint64
 Dwarf_Bool = c_ubyte
 
-# Codici di ritorno
+# Return codes
 DW_DLV_ERROR = -1
 DW_DLV_OK = 0
 DW_DLV_NO_ENTRY = 1
 
 # ============================================================================
-# Costanti DWARF
+# DWARF constants
 # ============================================================================
 
 
@@ -64,7 +64,7 @@ class DW_TAG(IntEnum):
     DW_TAG_class_type = 0x02
 
 
-# Attributi
+# Attributes
 class DW_AT(IntEnum):
     DW_AT_name = 0x03
     DW_AT_low_pc = 0x11
@@ -89,7 +89,7 @@ class DW_AT(IntEnum):
     DW_AT_specification = 0x47
 
 
-# Forme degli attributi
+# Attribute forms
 class DW_FORM(IntEnum):
     DW_FORM_addr = 0x01
     DW_FORM_block2 = 0x03
@@ -118,7 +118,7 @@ class DW_FORM(IntEnum):
     DW_FORM_ref_sig8 = 0x20
 
 
-# Encoding per tipi base
+# Encoding for base types
 class DW_ATE(IntEnum):
     DW_ATE_address = 0x01
     DW_ATE_boolean = 0x02
@@ -130,7 +130,7 @@ class DW_ATE(IntEnum):
     DW_ATE_unsigned_char = 0x08
 
 
-# Linguaggi
+# Languages
 class DW_LANG(IntEnum):
     DW_LANG_C = 0x0002
     DW_LANG_C89 = 0x0001
@@ -462,18 +462,18 @@ libdwarf.dwarf_get_section_bytes.argtypes = [
 libdwarf.dwarf_get_section_bytes.restype = POINTER(c_ubyte)
 
 # ============================================================================
-# Wrapper Python ad alto livello
+# High-level Python wrapper
 # ============================================================================
 
 
 class DwarfProducerError(Exception):
-    """Eccezione per errori libdwarf producer"""
+    """Exception for libdwarf producer errors"""
 
     pass
 
 
 class DwarfProducer:
-    """Wrapper per creare DWARF da zero"""
+    """Wrapper to create DWARF from scratch"""
 
     def __init__(self, isa="x86_64", dwarf_version="V2", endian=DW_ENDIAN_LITTLE):
         self.dbg = Dwarf_P_Debug()
@@ -482,11 +482,11 @@ class DwarfProducer:
         self.isa = isa
         self.dwarf_version = dwarf_version
 
-        # Callback dummy per gestire le sezioni
+        # Dummy callback to handle sections
         def section_callback(
             name, size, type, flags, link, info, sect_name_index, user_data, error
         ):
-            # Memorizza le informazioni sulla sezione
+            # Store section information
             section_info = {
                 "name": name.decode("utf-8") if name else "",
                 "size": size,
@@ -494,7 +494,7 @@ class DwarfProducer:
                 "flags": flags,
             }
             self.sections.append(section_info)
-            # Ritorna l'indice della sezione appena aggiunta (come in ghidra2dwarf)
+            # Return the index of the just-added section (as in ghidra2dwarf)
             section_index = len(self.sections) - 1
             if sect_name_index:
                 sect_name_index[0] = section_index
@@ -503,7 +503,7 @@ class DwarfProducer:
         self.callback = CALLBACK_FUNC(section_callback)
         error = Dwarf_Error()
 
-        # Usa gli stessi flag di ghidra2dwarf
+        # Use same flags as ghidra2dwarf
         flags = DW_DLC_WRITE | DW_DLC_SYMBOLIC_RELOCATIONS | DW_DLC_POINTER64 | DW_DLC_OFFSET32
         if endian == DW_ENDIAN_LITTLE:
             flags |= DW_DLC_TARGET_LITTLEENDIAN
@@ -524,7 +524,7 @@ class DwarfProducer:
         if res != DW_DLV_OK:
             raise DwarfProducerError("dwarf_producer_init failed: %s" % res)
         
-        # Imposta il form di default per le stringhe (importante!)
+        # Set default form for strings (important!)
         res = libdwarf.dwarf_pro_set_default_string_form(
             self.dbg, DW_FORM.DW_FORM_string, byref(error)
         )
@@ -538,14 +538,14 @@ class DwarfProducer:
         self.finish()
 
     def finish(self):
-        """Chiude il producer"""
+        """Closes the producer"""
         if self.dbg:
-            # Usa dwarf_producer_finish_a come in ghidra2dwarf
+            # Use dwarf_producer_finish_a as in ghidra2dwarf
             libdwarf.dwarf_producer_finish_a(self.dbg)
             self.dbg = None
 
     def create_die(self, tag, parent=None):
-        """Crea un nuovo DIE"""
+        """Creates a new DIE"""
         error = Dwarf_Error()
 
         die = libdwarf.dwarf_new_die(
@@ -566,16 +566,16 @@ class DwarfProducer:
         return die_wrapper
 
     def add_cu_die(self, die):
-        """Aggiunge un DIE compilation unit al debug"""
+        """Adds a compilation unit DIE to debug"""
         error = Dwarf_Error()
-        # Usa dwarf_add_die_to_debug_a come in ghidra2dwarf
+        # Use dwarf_add_die_to_debug_a as in ghidra2dwarf
         res = libdwarf.dwarf_add_die_to_debug_a(self.dbg, die.die, byref(error))
         if res != DW_DLV_OK:
             raise DwarfProducerError("dwarf_add_die_to_debug_a failed")
         return res
 
     def transform_to_disk(self):
-        """Trasforma il DWARF in formato disco"""
+        """Transforms DWARF to disk format"""
         error = Dwarf_Error()
         n_sections = libdwarf.dwarf_transform_to_disk_form(self.dbg, byref(error))
         if n_sections == DW_DLV_ERROR:
@@ -583,7 +583,7 @@ class DwarfProducer:
         return n_sections
 
     def get_section_bytes(self, section_idx):
-        """Ottiene i bytes di una sezione"""
+        """Gets bytes of a section"""
         error = Dwarf_Error()
         elf_section_index = Dwarf_Signed()
         length = Dwarf_Unsigned()
@@ -595,11 +595,11 @@ class DwarfProducer:
         if not data:
             raise DwarfProducerError("dwarf_get_section_bytes failed")
 
-        # Converti in bytes Python
+        # Convert to Python bytes
         return bytes(data[0 : length.value]), elf_section_index.value
 
     def create_expr(self):
-        """Crea una nuova espressione DWARF"""
+        """Creates a new DWARF expression"""
         error = Dwarf_Error()
         expr = libdwarf.dwarf_new_expr(self.dbg, byref(error))
         if not expr:
@@ -607,7 +607,7 @@ class DwarfProducer:
         return expr
 
     def add_expr_addr(self, expr, address, sym_index=0):
-        """Aggiunge un indirizzo a un'espressione DWARF"""
+        """Adds an address to a DWARF expression"""
         error = Dwarf_Error()
         res = libdwarf.dwarf_add_expr_addr_b(expr, address, sym_index, byref(error))
         if res == DW_DLV_ERROR:
@@ -615,7 +615,7 @@ class DwarfProducer:
         return res
 
     def add_expr_op(self, expr, opcode, val1=0, val2=0):
-        """Aggiunge un'operazione a un'espressione DWARF"""
+        """Adds an operation to a DWARF expression"""
         error = Dwarf_Error()
         res = libdwarf.dwarf_add_expr_gen(expr, opcode, val1, val2, byref(error))
         if res == DW_DLV_ERROR:
@@ -623,7 +623,7 @@ class DwarfProducer:
         return res
 
     def add_directory(self, directory):
-        """Aggiunge una directory alla line table"""
+        """Adds a directory to the line table"""
         error = Dwarf_Error()
         dir_idx = libdwarf.dwarf_add_directory_decl(
             self.dbg, directory.encode("utf-8"), byref(error)
@@ -633,7 +633,7 @@ class DwarfProducer:
         return dir_idx
 
     def add_file(self, filename, dir_index, mod_time=0, file_len=0):
-        """Aggiunge un file sorgente alla line table"""
+        """Adds a source file to the line table"""
         error = Dwarf_Error()
         file_idx = libdwarf.dwarf_add_file_decl(
             self.dbg,
@@ -648,7 +648,7 @@ class DwarfProducer:
         return file_idx
 
     def add_line_entry(self, file_index, address, line_number, column=0, is_stmt=True, basic_block=False):
-        """Aggiunge una entry alla line table (mappa indirizzo → linea)"""
+        """Adds an entry to the line table (maps address → line)"""
         error = Dwarf_Error()
         res = libdwarf.dwarf_add_line_entry(
             self.dbg,
@@ -665,7 +665,7 @@ class DwarfProducer:
         return res
 
     def end_line_sequence(self, end_address):
-        """Termina la sequenza di line entries"""
+        """Ends the line entry sequence"""
         error = Dwarf_Error()
         res = libdwarf.dwarf_lne_end_sequence_a(self.dbg, end_address, byref(error))
         if res == DW_DLV_ERROR:
@@ -674,7 +674,7 @@ class DwarfProducer:
 
 
 class ProducerDie:
-    """Wrapper per un DIE in fase di creazione"""
+    """Wrapper for a DIE being created"""
 
     def __init__(self, producer, die, tag):
         self.producer = producer
@@ -682,7 +682,7 @@ class ProducerDie:
         self.tag = tag
 
     def add_name(self, name):
-        """Aggiunge attributo DW_AT_name"""
+        """Adds DW_AT_name attribute"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_name(self.die, name.encode("utf-8"), byref(error))
         if not attr:
@@ -690,7 +690,7 @@ class ProducerDie:
         return attr
 
     def add_comp_dir(self, comp_dir):
-        """Aggiunge attributo DW_AT_comp_dir"""
+        """Adds DW_AT_comp_dir attribute"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_comp_dir(
             self.die, comp_dir.encode("utf-8"), byref(error)
@@ -700,7 +700,7 @@ class ProducerDie:
         return attr
 
     def add_producer(self, producer):
-        """Aggiunge attributo DW_AT_producer"""
+        """Adds DW_AT_producer attribute"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_producer(
             self.die, producer.encode("utf-8"), byref(error)
@@ -710,7 +710,7 @@ class ProducerDie:
         return attr
 
     def add_unsigned_constant(self, attribute, value):
-        """Aggiunge un attributo con valore unsigned"""
+        """Adds an attribute with unsigned value"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_unsigned_const(
             self.producer.dbg, self.die, attribute, value, byref(error)
@@ -720,7 +720,7 @@ class ProducerDie:
         return attr
 
     def add_signed_constant(self, attribute, value):
-        """Aggiunge un attributo con valore signed"""
+        """Adds an attribute with signed value"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_signed_const(
             self.producer.dbg, self.die, attribute, value, byref(error)
@@ -730,7 +730,7 @@ class ProducerDie:
         return attr
 
     def add_address(self, attribute, address, sym_index=0):
-        """Aggiunge un attributo indirizzo (es. DW_AT_low_pc)"""
+        """Adds an address attribute (e.g., DW_AT_low_pc)"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_targ_address(
             self.producer.dbg, self.die, attribute, address, sym_index, byref(error)
@@ -740,7 +740,7 @@ class ProducerDie:
         return attr
 
     def add_reference(self, attribute, target_die):
-        """Aggiunge un riferimento ad altro DIE (es. DW_AT_type)"""
+        """Adds a reference to another DIE (e.g., DW_AT_type)"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_reference(
             self.producer.dbg, self.die, attribute, target_die.die, byref(error)
@@ -750,7 +750,7 @@ class ProducerDie:
         return attr
 
     def add_flag(self, attribute, value):
-        """Aggiunge un flag (0 o 1)"""
+        """Adds a flag (0 or 1)"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_flag(
             self.producer.dbg, self.die, attribute, 1 if value else 0, byref(error)
@@ -760,7 +760,7 @@ class ProducerDie:
         return attr
 
     def add_string(self, attribute, value):
-        """Aggiunge una stringa"""
+        """Adds a string"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_string(
             self.producer.dbg, self.die, attribute, value.encode("utf-8"), byref(error)
@@ -770,7 +770,7 @@ class ProducerDie:
         return attr
 
     def add_location_expr(self, attribute, expr):
-        """Aggiunge un'espressione di location (es. per DW_AT_location)"""
+        """Adds a location expression (e.g., for DW_AT_location)"""
         error = Dwarf_Error()
         attr = libdwarf.dwarf_add_AT_location_expr(
             self.producer.dbg, self.die, attribute, expr, byref(error)
@@ -781,34 +781,34 @@ class ProducerDie:
 
 
 # ============================================================================
-# Integrazione con file ELF esistente
+# Integration with existing ELF file
 # ============================================================================
 
 
 def write_dwarf_to_elf(elf_path, sections_data, output_path):
     """
-    Aggiunge le sezioni DWARF a un file ELF esistente
-    Richiede: pyelftools
+    Adds DWARF sections to an existing ELF file
+    Requires: pyelftools
     """
     try:
         from elftools.elf.elffile import ELFFile
         from elftools.elf.sections import Section
     except ImportError:
-        print("Errore: installa pyelftools con: pip install pyelftools")
+        print("Error: install pyelftools with: pip install pyelftools")
         return
 
-    # Leggi il file ELF originale
+    # Read the original ELF file
     with open(elf_path, "rb") as f:
         elf_data = bytearray(f.read())
 
-    # Qui dovresti implementare la logica per:
-    # 1. Parsare l'ELF header
-    # 2. Aggiungere le nuove sezioni DWARF
-    # 3. Aggiornare la section header table
-    # 4. Scrivere il nuovo file
+    # Here you should implement the logic to:
+    # 1. Parse the ELF header
+    # 2. Add the new DWARF sections
+    # 3. Update the section header table
+    # 4. Write the new file
 
-    # Questo è complesso e richiede una gestione dettagliata del formato ELF
-    # Per semplicità, salviamo le sezioni come file separati
+    # This is complex and requires detailed handling of the ELF format
+    # For simplicity, save sections as separate files
 
     import os
 
@@ -818,9 +818,9 @@ def write_dwarf_to_elf(elf_path, sections_data, output_path):
         section_file = os.path.join(output_dir, "%s.bin" % section_name)
         with open(section_file, "wb") as f:
             f.write(data)
-        print("Salvata sezione: %s" % section_file)
+        print("Saved section: %s" % section_file)
 
-    print("\nPer aggiungere le sezioni all'ELF usa objcopy:")
+    print("\nTo add sections to ELF use objcopy:")
     for section_name in sections_data.keys():
         print(
             "  objcopy --add-section %s=%s.bin %s %s" % (section_name, section_name, elf_path, output_path)
@@ -828,19 +828,19 @@ def write_dwarf_to_elf(elf_path, sections_data, output_path):
 
 
 # ============================================================================
-# Helper per costruire strutture comuni da Ghidra
+# Helpers for building common structures from Ghidra
 # ============================================================================
 
 
 class GhidraDwarfBuilder:
-    """Helper per costruire DWARF da informazioni Ghidra"""
+    """Helper for building DWARF from Ghidra information"""
 
     def __init__(self, producer):
         self.producer = producer
-        self.type_cache = {}  # Cache per i tipi già creati
+        self.type_cache = {}  # Cache for already created types
 
     def create_compile_unit(self, name, comp_dir="/tmp", language=DW_LANG.DW_LANG_C):
-        """Crea una compilation unit"""
+        """Creates a compilation unit"""
         cu_die = self.producer.create_die(DW_TAG.DW_TAG_compile_unit)
         cu_die.add_name(name)
         cu_die.add_comp_dir(comp_dir)
@@ -849,7 +849,7 @@ class GhidraDwarfBuilder:
         return cu_die
 
     def create_base_type(self, name, byte_size, encoding, parent=None):
-        """Crea un tipo base (int, char, float, etc)"""
+        """Creates a base type (int, char, float, etc)"""
         cache_key = "base_%s_%s_%s" % (name, byte_size, encoding)
         if cache_key in self.type_cache:
             return self.type_cache[cache_key]
@@ -863,7 +863,7 @@ class GhidraDwarfBuilder:
         return type_die
 
     def create_pointer_type(self, target_type, parent=None):
-        """Crea un tipo pointer"""
+        """Creates a pointer type"""
         ptr_die = self.producer.create_die(DW_TAG.DW_TAG_pointer_type, parent)
         if target_type:
             ptr_die.add_reference(DW_AT.DW_AT_type, target_type)
@@ -871,17 +871,17 @@ class GhidraDwarfBuilder:
         return ptr_die
 
     def create_function(self, name, low_pc, high_pc, parent=None):
-        """Crea un subprogram (funzione)"""
+        """Creates a subprogram (function)"""
         func_die = self.producer.create_die(DW_TAG.DW_TAG_subprogram, parent)
         func_die.add_name(name)
         func_die.add_address(DW_AT.DW_AT_low_pc, low_pc)
-        # Usa add_address per high_pc (indirizzo assoluto) come fa ghidra2dwarf
+        # Use add_address for high_pc (absolute address) as ghidra2dwarf does
         func_die.add_address(DW_AT.DW_AT_high_pc, high_pc + 1)
         func_die.add_flag(DW_AT.DW_AT_external, True)
         return func_die
 
     def create_parameter(self, name, param_type, parent):
-        """Crea un parametro di funzione"""
+        """Creates a function parameter"""
         param_die = self.producer.create_die(DW_TAG.DW_TAG_formal_parameter, parent)
         param_die.add_name(name)
         if param_type:
@@ -889,7 +889,7 @@ class GhidraDwarfBuilder:
         return param_die
 
     def create_variable(self, name, var_type, parent=None):
-        """Crea una variabile"""
+        """Creates a variable"""
         var_die = self.producer.create_die(DW_TAG.DW_TAG_variable, parent)
         var_die.add_name(name)
         if var_type:
@@ -897,14 +897,14 @@ class GhidraDwarfBuilder:
         return var_die
 
     def create_struct(self, name, byte_size, parent=None):
-        """Crea una struttura"""
+        """Creates a structure"""
         struct_die = self.producer.create_die(DW_TAG.DW_TAG_structure_type, parent)
         struct_die.add_name(name)
         struct_die.add_unsigned_constant(DW_AT.DW_AT_byte_size, byte_size)
         return struct_die
 
     def create_struct_member(self, name, member_type, offset, parent):
-        """Crea un membro di struttura"""
+        """Creates a structure member"""
         member_die = self.producer.create_die(DW_TAG.DW_TAG_member, parent)
         member_die.add_name(name)
         member_die.add_reference(DW_AT.DW_AT_type, member_type)

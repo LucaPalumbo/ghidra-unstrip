@@ -10,8 +10,8 @@
 
 
 """
-Ghidra script per aggiungere symbol table e informazioni DWARF a un binario stripped.
-Estrae automaticamente funzioni, variabili e codice sorgente decompilato da Ghidra.
+Ghidra script to add symbol table and DWARF information to a stripped binary.
+Automatically extracts functions, variables and decompiled source code from Ghidra.
 """
 
 try:
@@ -33,7 +33,7 @@ from ghidra.app.util.bin.format.dwarf import DWARFRegisterMappingsManager
 from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.app.util.opinion import ElfLoader
 
-# Carica il modulo dalla directory lib/
+# Load module from lib/ directory
 script_path = sourceFile.absolutePath
 lib_dir = os.path.join(os.path.dirname(script_path), 'lib')
 sys.path.insert(0, lib_dir)
@@ -52,12 +52,12 @@ from libdwarf_producer import (
 import libdwarf_producer  # Per accedere dinamicamente a DW_OP_bregN
 from elf import add_sections_to_elf
 
-# Import per symbol table (CSV e subprocess)
+# Import for symbol table (CSV and subprocess)
 import csv
 import subprocess
 
 
-# Variabili globali
+# Global variables
 curr = getCurrentProgram()
 decomp_lines = []
 record = {}
@@ -66,21 +66,21 @@ stack_reg_dwarf = None
 
 
 # ============================================================================
-# FUNZIONI PER SYMBOL TABLE (integrate da symbol_table.py)
+# FUNCTIONS FOR SYMBOL TABLE (integrated from symbol_table.py)
 # ============================================================================
 
 def extract_symbols_to_csv(program, output_csv_path):
     """
-    Estrae simboli da un programma Ghidra e li salva in formato CSV.
+    Extracts symbols from a Ghidra program and saves them in CSV format.
     
     Args:
-        program: Il programma Ghidra corrente
-        output_csv_path: Path del file CSV di output
+        program: The current Ghidra program
+        output_csv_path: Path to the output CSV file
     
     Returns:
-        Numero di simboli estratti
+        Number of extracted symbols
     """
-    print("\n[SYMBOL_TABLE] Inizio estrazione simboli...")
+    print("\n[SYMBOL_TABLE] Starting symbol extraction...")
     
     # Import Ghidra modules (dentro la funzione per evitare errori di import quando non in Ghidra)
     from ghidra.app.util.bin.format.elf import ElfHeader
@@ -109,7 +109,7 @@ def extract_symbols_to_csv(program, output_csv_path):
         section_map.append((start, end, i))
     
     def getNdx(symbol):
-        """Trova l'indice della sezione per un simbolo"""
+        """Finds the section index for a symbol"""
         addr = symbol.getAddress().getOffset() - base_address
         for start, end, idx in section_map:
             if start <= addr < end:
@@ -126,7 +126,7 @@ def extract_symbols_to_csv(program, output_csv_path):
     listing = program.getListing()
     
     def getSymbolSize(symbol):
-        """Ottiene la dimensione di un simbolo (per variabili)"""
+        """Gets the size of a symbol (for variables)"""
         try:
             data = listing.getDataAt(symbol.getAddress())
             return data.getLength()
@@ -134,7 +134,7 @@ def extract_symbols_to_csv(program, output_csv_path):
             return None
     
     def gather_information(symbol):
-        """Raccoglie tutte le informazioni su un simbolo"""
+        """Gathers all information about a symbol"""
         name = symbol.getName()
         addr = max(symbol.getAddress().getOffset() - base_address, 0)
         sym_type = symbol.getSymbolType().toString()
@@ -165,12 +165,12 @@ def extract_symbols_to_csv(program, output_csv_path):
         if not s.isDynamic() and not s.isExternal()
     ]
     
-    print("  Trovati %d simboli da esportare" % len(symbols))
+    print("  Found %d symbols to export" % len(symbols))
     
     # Prepare CSV rows
     rows = [["name", "addr", "type", "size", "binding", "ndx"]]
     
-    # Aggiungi simboli esistenti
+    # Add existing symbols
     for symbol in symbols:
         info = gather_information(symbol)
         rows.append([
@@ -182,48 +182,48 @@ def extract_symbols_to_csv(program, output_csv_path):
             info["ndx"],
         ])
     
-    # Estrai stringhe da sezioni dati (.rodata, .data, ecc.)
-    print("  Estrazione stringhe da sezioni dati...")
+    # Extract strings from data sections (.rodata, .data, etc.)
+    print("  Extracting strings from data sections...")
     string_count = 0
     memory = program.getMemory()
     
-    # Cerca stringhe in tutte le sezioni dati
+    # Search for strings in all data sections
     for block in memory.getBlocks():
-        # Solo sezioni dati (non executable, non overlay, non external)
+        # Only data sections (not executable, not overlay, not external)
         if not block.isExecute() and not block.isOverlay() and not block.isExternalBlock():
-            print("    Scansione sezione: %s" % block.getName())
+            print("    Scanning section: %s" % block.getName())
             
-            # Itera su tutti i dati definiti in questa sezione
+            # Iterate over all defined data in this section
             data_iter = listing.getDefinedData(block.getStart(), True)
             
             try:
                 while data_iter.hasNext():
                     data = data_iter.next()
                     
-                    # Verifica se è una stringa
+                    # Check if it's a string
                     if data.hasStringValue():
                         try:
-                            # Ottieni il valore della stringa
+                            # Get the string value
                             string_value = data.getValue()
                             if string_value is None:
                                 continue
                             
-                            # Converti in stringa Python
+                            # Convert to Python string
                             str_content = str(string_value)
                             
-                            # Salta stringhe vuote o troppo corte
+                            # Skip empty or too short strings
                             if len(str_content) < 2:
                                 continue
                             
-                            # Crea nome simbolo dalla stringa
-                            # Primi 22 caratteri + "..." se supera i 25
+                            # Create symbol name from string
+                            # First 22 chars + "..." if longer than 25
                             if len(str_content) > 25:
                                 symbol_name = str_content[:22] + "..."
                             else:
                                 symbol_name = str_content
                             
-                            # Sanitizza il nome (rimuovi caratteri problematici)
-                            # Sostituisci spazi e caratteri speciali con underscore
+                            # Sanitize the name (remove problematic characters)
+                            # Replace spaces and special characters with underscores
                             symbol_name = symbol_name.replace(" ", "_")
                             symbol_name = symbol_name.replace("\n", "\\n")
                             symbol_name = symbol_name.replace("\t", "\\t")
@@ -232,13 +232,13 @@ def extract_symbols_to_csv(program, output_csv_path):
                             symbol_name = symbol_name.replace("'", "\\'")
                             symbol_name = symbol_name.replace(",", " ")
                             
-                            # Verifica che non esista già un simbolo a questo indirizzo
-                            # Usa max(..., 0) per evitare indirizzi negativi
+                            # Check that a symbol doesn't already exist at this address
+                            # Use max(..., 0) to avoid negative addresses
                             addr = max(data.getAddress().getOffset() - base_address, 0)
                             
-                            # Controlla se c'è già un simbolo con questo indirizzo nelle rows
+                            # Check if there's already a symbol with this address in rows
                             already_exists = False
-                            for row in rows[1:]:  # Salta l'header
+                            for row in rows[1:]:  # Skip header
                                 if row[1] == hex(addr):
                                     already_exists = True
                                     break
@@ -246,93 +246,93 @@ def extract_symbols_to_csv(program, output_csv_path):
                             if already_exists:
                                 continue
                             
-                            # Determina l'indice della sezione
+                            # Determine section index
                             ndx = 0
                             for start, end, idx in section_map:
                                 if start <= addr < end:
                                     ndx = idx
                                     break
                             
-                            # Aggiungi la stringa come simbolo
+                            # Add the string as a symbol
                             rows.append([
                                 symbol_name,
                                 hex(addr),
-                                "Label",  # Tipo speciale per stringhe
+                                "Label",  # Special type for strings
                                 data.getLength(),
-                                "local",  # Le stringhe sono tipicamente locali
+                                "local",  # Strings are typically local
                                 ndx,
                             ])
                             
                             string_count += 1
                             
                         except Exception as e:
-                            # Ignora errori su singole stringhe
+                            # Ignore errors on individual strings
                             pass
                             
             except Exception as e:
-                print("    [WARN] Errore durante scansione sezione %s: %s" % (block.getName(), str(e)))
+                print("    [WARN] Error scanning section %s: %s" % (block.getName(), str(e)))
     
-    print("  Trovate %d stringhe aggiuntive" % string_count)
-    print("  Totale simboli: %d" % (len(rows) - 1))  # -1 per l'header
+    print("  Found %d additional strings" % string_count)
+    print("  Total symbols: %d" % (len(rows) - 1))  # -1 for header
     
     # Write CSV
     with open(output_csv_path, "w") as f:
         w = csv.writer(f)
         w.writerows(rows)
     
-    print("  CSV salvato: %s" % output_csv_path)
+    print("  CSV saved: %s" % output_csv_path)
     
     return len(symbols)
 
 
 def call_add_symbols_binary(binary_path, input_elf, csv_path, output_elf):
     """
-    Chiama il binario add_symbols compilato con PyInstaller.
+    Calls the add_symbols binary compiled with PyInstaller.
     
     Args:
-        binary_path: Path del binario add_symbols
-        input_elf: Path del file ELF di input
-        csv_path: Path del CSV con i simboli
-        output_elf: Path del file ELF di output
+        binary_path: Path to the add_symbols binary
+        input_elf: Path to the input ELF file
+        csv_path: Path to the CSV with symbols
+        output_elf: Path to the output ELF file
     
     Returns:
-        True se successo, False altrimenti
+        True if successful, False otherwise
     """
     if not os.path.exists(binary_path):
-        print("  [ERRORE] Binario add_symbols non trovato: %s" % binary_path)
-        print("  Compila con: ./build_add_symbols.sh")
+        print("  [ERROR] add_symbols binary not found: %s" % binary_path)
+        print("  Compile with: ./build_add_symbols.sh")
         return False
     
-    print("  Esecuzione binario add_symbols...")
+    print("  Running add_symbols binary...")
     print("    Binary: %s" % binary_path)
     print("    Input:  %s" % input_elf)
     print("    CSV:    %s" % csv_path)
     print("    Output: %s" % output_elf)
     
     try:
-        # Esegui il binario
+        # Run the binary
         result = subprocess.call([binary_path, input_elf, csv_path, output_elf])
         
         if result == 0:
-            print("  ✓ Simboli aggiunti con successo")
+            print("  ✓ Symbols added successfully")
             return True
         else:
-            print("  ✗ Errore durante l'aggiunta dei simboli (exit code: %d)" % result)
+            print("  ✗ Error adding symbols (exit code: %d)" % result)
             return False
     
     except Exception as e:
-        print("  ✗ Errore durante l'esecuzione: %s" % str(e))
+        print("  ✗ Execution error: %s" % str(e))
         return False
 
 
 # ============================================================================
-# FUNZIONI PER DWARF
+# FUNCTIONS FOR DWARF
 # ============================================================================
 
 def get_real_address(addr):
     """
-    Converte un indirizzo Ghidra nell'indirizzo reale del binario.
-    Gestisce PIE (Position Independent Executables).
+    Converts a Ghidra address to the real binary address.
+    Handles PIE (Position Independent Executables).
     """
     if addr is None:
         return None
@@ -347,12 +347,12 @@ def get_real_address(addr):
 
 
 def get_function_range(func):
-    """Ottiene l'indirizzo di inizio e fine di una funzione"""
+    """Gets the start and end address of a function"""
     return get_real_address(func.entryPoint), get_real_address(func.body.maxAddress)
 
 
 def is_function_executable(func):
-    """Verifica se la funzione è in una sezione eseguibile"""
+    """Checks if the function is in an executable section"""
     f_start, f_end = get_function_range(func)
     for s in curr.memory.executeSet.addressRanges:
         if f_start >= get_real_address(s.minAddress) and f_end <= get_real_address(s.maxAddress):
@@ -361,7 +361,7 @@ def is_function_executable(func):
 
 
 def get_decompiled_function(func):
-    """Decompila una funzione usando il decompiler di Ghidra"""
+    """Decompiles a function using Ghidra's decompiler"""
     options = DecompileOptions()
     monitor = ConsoleTaskMonitor()
     ifc = DecompInterface()
@@ -373,8 +373,8 @@ def get_decompiled_function(func):
 
 def get_decompiled_variables(decomp):
     """
-    Estrae variabili e parametri dal risultato della decompilazione.
-    Ritorna: (name, datatype, addr, storage, is_parameter)
+    Extracts variables and parameters from decompilation result.
+    Returns: (name, datatype, addr, storage, is_parameter)
     """
     high_func = decomp.highFunction
     if high_func is None:
@@ -382,7 +382,7 @@ def get_decompiled_variables(decomp):
     
     variables = []
     
-    # Parametri
+    # Parameters
     for param in high_func.localSymbolMap.symbols:
         if param.isParameter():
             variables.append((
@@ -393,7 +393,7 @@ def get_decompiled_variables(decomp):
                 True  # is_parameter
             ))
     
-    # Variabili locali
+    # Local variables
     for var in high_func.localSymbolMap.symbols:
         if not var.isParameter():
             variables.append((
@@ -408,20 +408,20 @@ def get_decompiled_variables(decomp):
 
 
 def generate_register_mappings():
-    """Genera le mappature tra registri Ghidra e DWARF"""
+    """Generates mappings between Ghidra and DWARF registers"""
     global register_mappings, stack_reg_dwarf
     
     d2g_mapping = DWARFRegisterMappingsManager.getMappingForLang(curr.language)
     g2d_mapping = {}
     
-    DW_FRAME_LAST_REG_NUM = 100  # Valore approssimativo
+    DW_FRAME_LAST_REG_NUM = 100  # Approximate value
     for i in range(DW_FRAME_LAST_REG_NUM):
         reg = d2g_mapping.getGhidraReg(i)
         if reg:
             g2d_mapping[reg.offset] = i
     
     stack_reg_num = d2g_mapping.getDWARFStackPointerRegNum()
-    # Accedi dinamicamente al DW_OP specifico per lo stack pointer
+    # Dynamically access the specific DW_OP for the stack pointer
     stack_reg_dwarf_op = getattr(libdwarf_producer, "DW_OP_breg%d" % stack_reg_num, None)
     
     register_mappings = g2d_mapping
@@ -432,17 +432,17 @@ def generate_register_mappings():
 
 def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
     """
-    Converte un tipo di dato Ghidra in un DIE DWARF.
-    Gestisce ricorsivamente tipi complessi (puntatori, array, struct).
+    Converts a Ghidra data type to a DWARF DIE.
+    Recursively handles complex types (pointers, arrays, structs).
     """
     global record
     
     if parent is None:
         parent = cu
     
-    # Gestisci tipi None (undefined)
+    # Handle None types (undefined)
     if ghidra_type is None:
-        print("  [WARN] Tipo None incontrato, uso 'void' generico")
+        print("  [WARN] None type encountered, using generic 'void'")
         if "void" in record:
             return record["void"]
         void_die = builder.create_base_type("void", 0, DW_ATE.DW_ATE_address, parent)
@@ -451,11 +451,11 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
     
     type_name = str(ghidra_type)
     
-    # Controlla se il tipo è già stato creato
+    # Check if the type has already been created
     if type_name in record:
         return record[type_name]
     
-    # Tipi puntatore
+    # Pointer types
     if isinstance(ghidra_type, Pointer):
         pointed_type = ghidra_type.dataType
         pointed_die = ghidra_type_to_dwarf_type(cu, builder, producer, pointed_type, parent)
@@ -463,16 +463,16 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
         record[type_name] = ptr_die
         return ptr_die
     
-    # Tipi array
+    # Array types
     elif isinstance(ghidra_type, Array):
         element_type = ghidra_type.dataType
         element_die = ghidra_type_to_dwarf_type(cu, builder, producer, element_type, parent)
         
-        # Crea array type
+        # Create array type
         array_die = producer.create_die(DW_TAG.DW_TAG_array_type, parent)
         array_die.add_reference(DW_AT.DW_AT_type, element_die)
         
-        # Subrange per la dimensione
+        # Subrange for size
         count = ghidra_type.numElements
         subrange = producer.create_die(DW_TAG.DW_TAG_subrange_type, array_die)
         subrange.add_unsigned_constant(DW_AT.DW_AT_upper_bound, count - 1)
@@ -480,13 +480,13 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
         record[type_name] = array_die
         return array_die
     
-    # Tipi struct
+    # Struct types
     elif isinstance(ghidra_type, Structure):
         struct_die = producer.create_die(DW_TAG.DW_TAG_structure_type, parent)
         struct_die.add_name(ghidra_type.name)
         struct_die.add_unsigned_constant(DW_AT.DW_AT_byte_size, ghidra_type.length)
         
-        # Membri della struct
+        # Struct members
         for component in ghidra_type.getComponents():
             member_die = producer.create_die(DW_TAG.DW_TAG_member, struct_die)
             member_die.add_name(component.getFieldName())
@@ -498,7 +498,7 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
         record[type_name] = struct_die
         return struct_die
     
-    # Tipi enum
+    # Enum types
     elif isinstance(ghidra_type, Enum):
         enum_die = producer.create_die(DW_TAG.DW_TAG_enumeration_type, parent)
         enum_die.add_name(ghidra_type.name)
@@ -513,12 +513,12 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
         record[type_name] = enum_die
         return enum_die
     
-    # Tipi base (int, char, float, ecc.)
+    # Base types (int, char, float, etc.)
     elif isinstance(ghidra_type, (BuiltInDataType, DefaultDataType)):
         size = ghidra_type.length
         name = ghidra_type.name
         
-        # Determina encoding
+        # Determine encoding
         if "float" in name.lower() or "double" in name.lower():
             encoding = DW_ATE.DW_ATE_float
         elif "unsigned" in name.lower() or name.lower() in ["byte", "uchar"]:
@@ -538,8 +538,8 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
         return base_die
     
     else:
-        # Fallback: tratta come tipo base sconosciuto
-        print("  [WARN] Tipo sconosciuto: %s, uso tipo base generico" % type_name)
+        # Fallback: treat as unknown base type
+        print("  [WARN] Unknown type: %s, using generic base type" % type_name)
         base_die = builder.create_base_type(str(ghidra_type), ghidra_type.length, DW_ATE.DW_ATE_signed, parent)
         record[type_name] = base_die
         return base_die
@@ -547,8 +547,8 @@ def ghidra_type_to_dwarf_type(cu, builder, producer, ghidra_type, parent=None):
 
 def add_variable_location(producer, var_die, storage):
     """
-    Aggiunge informazione sulla location di una variabile.
-    Gestisce: registri, stack, memoria.
+    Adds location information for a variable.
+    Handles: registers, stack, memory.
     """
     varnode = storage.firstVarnode
     if varnode is None:
@@ -559,7 +559,7 @@ def add_variable_location(producer, var_die, storage):
     
     try:
         if varnode_addr.isRegisterAddress():
-            # Variabile in registro
+            # Variable in register
             reg = curr.getRegister(varnode_addr, varnode.size)
             if reg.offset in register_mappings:
                 reg_dwarf = register_mappings[reg.offset]
@@ -567,29 +567,29 @@ def add_variable_location(producer, var_die, storage):
                 var_die.add_location_expr(DW_AT.DW_AT_location, expr)
         
         elif varnode_addr.isStackAddress():
-            # Variabile nello stack
+            # Variable on stack
             offset = varnode_addr.offset - varnode_addr.pointerSize
             producer.add_expr_op(expr, DW_OP_fbreg, offset, 0)
             var_die.add_location_expr(DW_AT.DW_AT_location, expr)
         
         elif varnode_addr.isMemoryAddress():
-            # Variabile globale in memoria
+            # Global variable in memory
             addr = get_real_address(varnode_addr)
             producer.add_expr_addr(expr, addr)
             var_die.add_location_expr(DW_AT.DW_AT_location, expr)
     
     except Exception as e:
-        print("  [WARN] Impossibile aggiungere location per variabile: %s" % str(e))
+        print("  [WARN] Unable to add location for variable: %s" % str(e))
 
 
 def add_function_dwarf(cu, builder, producer, func, file_index, source_output):
     """
-    Aggiunge informazioni DWARF per una singola funzione.
-    Ritorna: (die, addr_to_line_mapping)
+    Adds DWARF information for a single function.
+    Returns: (die, addr_to_line_mapping)
     """
-    print("  Elaborazione funzione: %s" % func.name)
+    print("  Processing function: %s" % func.name)
     
-    # Crea DIE per la funzione
+    # Create DIE for the funciton
     f_start, f_end = get_function_range(func)
     
     func_die = builder.create_function(
@@ -604,54 +604,54 @@ def add_function_dwarf(cu, builder, producer, func, file_index, source_output):
     producer.add_expr_op(frame_expr, DW_OP_call_frame_cfa, 0, 0)
     func_die.add_location_expr(DW_AT.DW_AT_frame_base, frame_expr)
     
-    # Linea di inizio della funzione nel file sorgente
+    # Starting line of the function in the source file
     func_line = len(decomp_lines) + 1
     
-    # Decompila la funzione
+    # Decompile the function
     res = get_decompiled_function(func)
     
     if res.decompiledFunction is None:
-        # Errore nella decompilazione
+        # Decompilation error
         decompiled_code = "/* Error decompiling %s: %s */" % (func.getName(True), res.errorMessage)
         decomp_lines.extend(decompiled_code.split("\n"))
         addr_to_line = {f_start: func_line + 1}
     else:
-        # Decompilazione riuscita
+        # Decompilation successful
         decompiled_code = res.decompiledFunction.c
         decomp_lines.extend(decompiled_code.split("\n"))
         
-        # Tipo di ritorno
+        # Return type
         ret_type_die = ghidra_type_to_dwarf_type(cu, builder, producer, func.returnType, cu)
         func_die.add_reference(DW_AT.DW_AT_type, ret_type_die)
         
-        # Informazioni sul file sorgente
+        # Source file information
         func_die.add_unsigned_constant(DW_AT.DW_AT_decl_file, file_index)
         func_die.add_unsigned_constant(DW_AT.DW_AT_decl_line, func_line + 1)
         
-        # Variabili e parametri
+        # Variables and parameters
         for name, datatype, addr, storage, is_param in get_decompiled_variables(res):
             tag = DW_TAG.DW_TAG_formal_parameter if is_param else DW_TAG.DW_TAG_variable
             var_die = producer.create_die(tag, func_die)
             var_die.add_name(name)
             
-            # Tipo della variabile
+            # Variable type
             var_type_die = ghidra_type_to_dwarf_type(cu, builder, producer, datatype, cu)
             var_die.add_reference(DW_AT.DW_AT_type, var_type_die)
             
-            # Location (registro, stack, memoria)
+            # Location (register, stack, memory)
             add_variable_location(producer, var_die, storage)
         
-        # Estrai mapping indirizzo → linea dal decompiled code
+        # Extract address → line mapping from decompiled code
         addr_to_line = extract_line_mappings(res, func_line)
-        addr_to_line[f_start] = func_line + 1  # Assicura che l'entry point sia mappato
+        addr_to_line[f_start] = func_line + 1  # Ensure entry point is mapped
     
     return func_die, addr_to_line
 
 
 def extract_line_mappings(decomp_result, func_line_offset):
     """
-    Estrae il mapping indirizzo → linea dal codice decompilato.
-    Usa i token del ClangMarkup per trovare gli indirizzi.
+    Extracts address → line mapping from decompiled code.
+    Uses ClangMarkup tokens to find addresses.
     """
     addr_to_line = {}
     
@@ -667,14 +667,14 @@ def extract_line_mappings(decomp_result, func_line_offset):
                     addr_to_line[real_addr] = line_num
     
     except Exception as e:
-        print("  [WARN] Impossibile estrarre line mappings: %s" % str(e))
+        print("  [WARN] Unable to extract line mappings: %s" % str(e))
     
     return addr_to_line
 
 
 def add_global_variables(cu, builder, producer):
-    """Aggiunge variabili globali al DWARF"""
-    print("\nAggiunta variabili globali...")
+    """Adds global variables to DWARF"""
+    print("\nAdding global variables...")
     count = 0
     
     for symbol in curr.symbolTable.getAllSymbols(True):
@@ -697,43 +697,43 @@ def add_global_variables(cu, builder, producer):
                 
                 count += 1
     
-    print("  Aggiunte %d variabili globali" % count)
+    print("  Added %d global variables" % count)
 
 
 def create_dwarf_from_ghidra(input_path_override=None):
     """
-    Funzione principale che crea il DWARF estraendo informazioni da Ghidra.
+    Main function that creates DWARF by extracting information from Ghidra.
     
     Args:
-        input_path_override: Se specificato, usa questo path invece di curr.executablePath
+        input_path_override: If specified, use this path instead of curr.executablePath
     
     Returns:
-        Path del file di output con DWARF
+        Path to output file with DWARF
     """
     global decomp_lines, record
     
     print("=" * 70)
-    print("CREAZIONE DWARF DA ANALISI GHIDRA")
+    print("CREATING DWARF FROM GHIDRA ANALYSIS")
     print("=" * 70)
     
-    # Verifica che sia un ELF
+    # Verify it's an ELF
     if curr.executableFormat != ElfLoader.ELF_NAME:
-        print("\n[ERRORE] Solo binari ELF sono supportati!")
+        print("\n[ERROR] Only ELF binaries are supported!")
         return None
     
-    # Inizializza registri
-    print("\n1. Inizializzazione mappature registri...")
+    # Initialize registers
+    print("\n1. Initializing register mappings...")
     generate_register_mappings()
     
-    # Determina il file di output
+    # Determine output file
     input_path = input_path_override if input_path_override else curr.executablePath
     output_path = input_path + ".dwarf"
     
-    print("\n2. File:")
+    print("\n2. Files:")
     print("   Input:  %s" % input_path)
     print("   Output: %s" % output_path)
     
-    # Path per il file sorgente decompilato
+    # Path for decompiled source file
     source_file = input_path + ".c"
     source_dir = os.path.dirname(source_file)
     source_name = os.path.basename(source_file)
@@ -744,21 +744,21 @@ def create_dwarf_from_ghidra(input_path_override=None):
         builder = GhidraDwarfBuilder(producer)
         
         # 3. COMPILATION UNIT
-        print("\n3. Creazione Compilation Unit...")
+        print("\n3. Creating Compilation Unit...")
         cu = builder.create_compile_unit(
             name=source_name,
             comp_dir=source_dir,
             language=DW_LANG.DW_LANG_C
         )
         
-        # 4. FUNZIONI
-        print("\n4. Elaborazione funzioni...")
+        # 4. FUNCTIONS
+        print("\n4. Processing functions...")
         fm = curr.functionManager
         funcs = list(fm.getFunctions(True))
         
-        # Filtra solo funzioni eseguibili
+        # Filter only executable functions
         exec_funcs = [f for f in funcs if is_function_executable(f)]
-        print("   Trovate %d funzioni (%d eseguibili)" % (len(funcs), len(exec_funcs)))
+        print("   Found %d functions (%d executable)" % (len(funcs), len(exec_funcs)))
         
         addr_to_line = {}
         max_addr = 0
@@ -772,26 +772,26 @@ def create_dwarf_from_ghidra(input_path_override=None):
                 max_addr = max(max_addr, f_end + 1)
                 
                 if (i + 1) % 10 == 0:
-                    print("   Elaborate %d/%d funzioni..." % (i + 1, len(exec_funcs)))
+                    print("   Processed %d/%d functions..." % (i + 1, len(exec_funcs)))
             
             except Exception as e:
-                print("   [ERRORE] Funzione %s: %s" % (func.name, str(e)))
+                print("   [ERROR] Function %s: %s" % (func.name, str(e)))
                 import traceback
                 traceback.print_exc()
         
-        print("   Completate %d funzioni" % len(exec_funcs))
+        print("   Completed %d functions" % len(exec_funcs))
         
-        # 5. VARIABILI GLOBALI
-        print("\n5. Elaborazione variabili globali...")
+        # 5. GLOBAL VARIABLES
+        print("\n5. Processing global variables...")
         add_global_variables(cu, builder, producer)
         
         # 6. LINE TABLE
-        print("\n6. Creazione line table...")
+        print("\n6. Creating line table...")
         dir_index = producer.add_directory(source_dir)
         file_index = producer.add_file(source_name, dir_index, 0, 0)
         cu.add_unsigned_constant(DW_AT.DW_AT_stmt_list, 0)
         
-        # Aggiungi line entries in ordine di indirizzo
+        # Add line entries in address order
         sorted_addrs = sorted(addr_to_line.keys())
         for addr in sorted_addrs:
             line = addr_to_line[addr]
@@ -799,23 +799,23 @@ def create_dwarf_from_ghidra(input_path_override=None):
             max_addr = max(max_addr, addr + 1)
         
         producer.end_line_sequence(max_addr)
-        print("   Aggiunte %d line entries" % len(sorted_addrs))
+        print("   Added %d line entries" % len(sorted_addrs))
         
-        # 7. SALVA CODICE SORGENTE
-        print("\n7. Salvataggio codice sorgente decompilato...")
+        # 7. SAVE SOURCE CODE
+        print("\n7. Saving decompiled source code...")
         with open(source_file, "w") as f:
             f.write("\n".join(decomp_lines))
-        print("   Salvato: %s (%d righe)" % (source_file, len(decomp_lines)))
+        print("   Saved: %s (%d lines)" % (source_file, len(decomp_lines)))
         
-        # 8. FINALIZZA DWARF
-        print("\n8. Finalizzazione DWARF...")
+        # 8. FINALIZE DWARF
+        print("\n8. Finalizing DWARF...")
         producer.add_cu_die(cu)
         
         n_sections = producer.transform_to_disk()
-        print("   Sezioni create: %d" % n_sections)
+        print("   Sections created: %d" % n_sections)
         
-        # 9. ESTRAI BYTES
-        print("\n9. Estrazione bytes sezioni...")
+        # 9. EXTRACT BYTES
+        print("\n9. Extracting section bytes...")
         sections_data = {}
         
         for i in range(n_sections):
@@ -832,19 +832,19 @@ def create_dwarf_from_ghidra(input_path_override=None):
                 sections_data[section_name] += section_bytes
                 
             except Exception as e:
-                print("   [WARN] Errore sezione %d: %s" % (i, str(e)))
+                print("   [WARN] Section %d error: %s" % (i, str(e)))
         
-        print("\n10. Sezioni DWARF create:")
+        print("\n10. DWARF sections created:")
         total_size = 0
         for name, data in sections_data.items():
             print("   ✓ %s: %d bytes" % (name, len(data)))
             total_size += len(data)
-        print("   Totale: %d bytes" % total_size)
+        print("   Total: %d bytes" % total_size)
         
-        # 10. SCRIVI NELL'ELF
-        print("\n11. Scrittura DWARF nell'ELF...")
+        # 10. WRITE TO ELF
+        print("\n11. Writing DWARF to ELF...")
         
-        # Filtra sezioni di relocazione
+        # Filter relocation sections
         filtered_sections = []
         for section_name, section_bytes in sections_data.items():
             if not section_name.startswith('.rel.') and not section_name.startswith('.rela.'):
@@ -852,20 +852,20 @@ def create_dwarf_from_ghidra(input_path_override=None):
         
         try:
             add_sections_to_elf(input_path, output_path, filtered_sections)
-            print("   ✓ ELF scritto: %s" % output_path)
+            print("   ✓ ELF written: %s" % output_path)
         except Exception as e:
-            print("   ✗ ERRORE scrittura ELF: %s" % str(e))
+            print("   ✗ ELF write ERROR: %s" % str(e))
             import traceback
             traceback.print_exc()
             return None
         
         print("\n" + "=" * 70)
-        print("✓✓✓ COMPLETATO CON SUCCESSO!")
+        print("✓✓✓ COMPLETED SUCCESSFULLY!")
         print("=" * 70)
-        print("\nFile creati:")
-        print("  - %s (ELF con DWARF)" % output_path)
-        print("  - %s (codice sorgente)" % source_file)
-        print("\nVerifica con GDB:")
+        print("\nFiles created:")
+        print("  - %s (ELF with DWARF)" % output_path)
+        print("  - %s (source code)" % source_file)
+        print("\nVerify with GDB:")
         print("  $ gdb %s" % output_path)
         print("  (gdb) info functions")
         print("  (gdb) list main")
@@ -876,84 +876,84 @@ def create_dwarf_from_ghidra(input_path_override=None):
 
 def add_symbols_and_dwarf():
     """
-    Funzione principale che aggiunge sia symbol table che DWARF al binario.
-    Workflow completo:
-      1. Estrai simboli da Ghidra -> CSV
-      2. Aggiungi simboli al binario usando LIEF -> binario_symbols
-      3. Aggiungi DWARF al binario con simboli -> binario_symbols.dwarf (finale)
+    Main function that adds both symbol table and DWARF to the binary.
+    Complete workflow:
+      1. Extract symbols from Ghidra -> CSV
+      2. Add symbols to binary using LIEF -> binary_symbols
+      3. Add DWARF to binary with symbols -> binary_symbols.dwarf (final)
     
     Returns:
-        Path del file finale (con simboli + DWARF)
+        Path to final file (with symbols + DWARF)
     """
     print("=" * 70)
     print("GHIDRA UNSTRIP: SYMBOL TABLE + DWARF")
     print("=" * 70)
     
-    # Verifica che sia un ELF
+    # Verify it's an ELF
     if curr.executableFormat != ElfLoader.ELF_NAME:
-        print("\n[ERRORE] Solo binari ELF sono supportati!")
+        print("\n[ERROR] Only ELF binaries are supported!")
         return None
     
     input_path = curr.executablePath
     
-    # Determina il path del binario add_symbols e del CSV
+    # Determine path to add_symbols binary and CSV
     script_dir = os.path.dirname(script_path)
     add_symbols_binary = os.path.join(script_dir, "dist", "add_symbols")
     csv_path = input_path + "_symbols.csv"
     
-    # STEP 1 & 2: Estrai simboli da Ghidra e aggiungili al binario
+    # STEP 1 & 2: Extract symbols from Ghidra and add them to binary
     print("\n" + "=" * 70)
     print("STEP 1-2: SYMBOL TABLE EXTRACTION & ADDITION")
     print("=" * 70)
     
     symbols_elf_path = input_path + "_symbols"
     
-    # Determina il path del binario add_symbols
+    # Determine path to add_symbols binary
     script_dir = os.path.dirname(script_path)
     add_symbols_binary = os.path.join(script_dir, "dist", "add_symbols")
     
-    # Verifica se il binario esiste
+    # Check if binary exists
     if not os.path.exists(add_symbols_binary):
-        print("\n[WARN] Binario add_symbols non trovato: %s" % add_symbols_binary)
-        print("[WARN] Compila con: ./build_add_symbols.sh")
-        print("[INFO] Continuo comunque con il DWARF sul binario originale...")
-        symbols_elf_path = input_path  # Fallback: usa il binario originale
+        print("\n[WARN] add_symbols binary not found: %s" % add_symbols_binary)
+        print("[WARN] Compile with: ./build_add_symbols.sh")
+        print("[INFO] Continuing with DWARF on original binary...")
+        symbols_elf_path = input_path  # Fallback: use original binary
     else:
         try:
-            print("\n[SYMBOL_TABLE] Estrazione simboli da Ghidra...")
+            print("\n[SYMBOL_TABLE] Extracting symbols from Ghidra...")
             
-            # Estrai simboli da Ghidra e salva in CSV
+            # Extract symbols from Ghidra and save to CSV
             num_symbols = extract_symbols_to_csv(curr, csv_path)
-            print("  Estratti %d simboli" % num_symbols)
+            print("  Extracted %d symbols" % num_symbols)
             
             if num_symbols == 0:
-                print("  [WARN] Nessun simbolo estratto da Ghidra")
-                print("[INFO] Continuo comunque con il DWARF sul binario originale...")
+                print("  [WARN] No symbols extracted from Ghidra")
+                print("[INFO] Continuing with DWARF on original binary...")
                 symbols_elf_path = input_path
             else:
-                # Chiama binario esterno per aggiungere simboli
-                print("\n[SYMBOL_TABLE] Chiamata binario add_symbols...")
+                # Call external binary to add symbols
+                print("\n[SYMBOL_TABLE] Calling add_symbols binary...")
                 success = call_add_symbols_binary(add_symbols_binary, input_path, csv_path, symbols_elf_path)
                 
                 if success:
-                    print("\n✓ Simboli aggiunti al binario: %s" % symbols_elf_path)
+                    print("\n✓ Symbols added to binary: %s" % symbols_elf_path)
                 else:
-                    print("\n✗ ERRORE durante l'aggiunta dei simboli")
-                    print("[INFO] Continuo comunque con il DWARF sul binario originale...")
+                    print("\n✗ ERROR adding symbols")
+                    print("[INFO] Continuing with DWARF on original binary...")
                     symbols_elf_path = input_path  # Fallback
                     
         except Exception as e:
-            print("\n✗✗✗ ECCEZIONE durante l'aggiunta dei simboli!")
-            print("Tipo errore: %s" % type(e).__name__)
-            print("Messaggio: %s" % str(e))
+            print("\n✗✗✗ EXCEPTION adding symbols!")
+            print("Error type: %s" % type(e).__name__)
+            print("Message: %s" % str(e))
             import traceback
             traceback.print_exc()
-            print("\n[INFO] Continuo comunque con il DWARF sul binario originale...")
-            symbols_elf_path = input_path  # Fallback: usa il binario originale
+            print("\n[INFO] Continuing with DWARF on original binary...")
+            symbols_elf_path = input_path  # Fallback: use original binary
     
-    # STEP 3: Aggiungi DWARF al binario con simboli
+    # STEP 3: Add DWARF to binary with symbols
     print("\n" + "=" * 70)
-    print("STEP 3: AGGIUNTA DWARF")
+    print("STEP 3: ADDING DWARF")
     print("=" * 70)
     
     try:
@@ -961,19 +961,19 @@ def add_symbols_and_dwarf():
         
         if dwarf_output:
             print("\n" + "=" * 70)
-            print("✓✓✓ PROCESSO COMPLETO!")
+            print("✓✓✓ COMPLETE PROCESS!")
             print("=" * 70)
-            print("\nFile creati:")
-            print("  1. %s (CSV simboli)" % csv_path)
+            print("\nFiles created:")
+            print("  1. %s (CSV symbols)" % csv_path)
             print("  2. %s (ELF + symbol table)" % symbols_elf_path)
-            print("  3. %s (ELF + symbol table + DWARF) ← FINALE" % dwarf_output)
-            print("  4. %s.c (codice sorgente decompilato)" % symbols_elf_path)
-            print("\nVerifica simboli:")
+            print("  3. %s (ELF + symbol table + DWARF) ← FINAL" % dwarf_output)
+            print("  4. %s.c (decompiled source code)" % symbols_elf_path)
+            print("\nVerify symbols:")
             print("  $ nm %s | head" % dwarf_output)
             print("  $ readelf -s %s | head" % dwarf_output)
-            print("\nVerifica DWARF:")
+            print("\nVerify DWARF:")
             print("  $ readelf --debug-dump=info %s | head -50" % dwarf_output)
-            print("\nDebug con GDB:")
+            print("\nDebug with GDB:")
             print("  $ gdb %s" % dwarf_output)
             print("  (gdb) info functions")
             print("  (gdb) info variables")
@@ -982,26 +982,26 @@ def add_symbols_and_dwarf():
             
             return dwarf_output
         else:
-            print("\n✗ ERRORE durante la creazione del DWARF")
+            print("\n✗ ERROR creating DWARF")
             return None
     
     except Exception as e:
-        print("\n✗✗✗ ERRORE FATALE durante la creazione del DWARF: %s" % str(e))
+        print("\n✗✗✗ FATAL ERROR creating DWARF: %s" % str(e))
         import traceback
         traceback.print_exc()
         return None
 
 
-# Entry point dello script Ghidra
+# Entry point of the Ghidra script
 if __name__ == "__main__":
     try:
-        # Usa la funzione combinata che fa tutto
+        # Use combined function that does everything
         result = add_symbols_and_dwarf()
         if result:
-            print("\n✓✓✓ Script completato con successo!")
+            print("\n✓✓✓ Script completed successfully!")
         else:
-            print("\n✗✗✗ Script terminato con errori")
+            print("\n✗✗✗ Script terminated with errors")
     except Exception as e:
-        print("\n✗✗✗ ERRORE FATALE: %s" % str(e))
+        print("\n✗✗✗ FATAL ERROR: %s" % str(e))
         import traceback
         traceback.print_exc()

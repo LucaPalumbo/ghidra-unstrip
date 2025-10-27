@@ -1,4 +1,7 @@
 # Ghidra Unstrip
+<div align="center">
+  <img src="img/unstrip-logo.jpg" alt="Ghidra Unstrip Logo" width="400"/>
+</div>
 
 **Restore symbol table and DWARF debug information to stripped ELF binaries using Ghidra analysis**
 
@@ -8,7 +11,7 @@ Ghidra Unstrip automatically extracts functions, variables, types, and decompile
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -19,7 +22,6 @@ Ghidra Unstrip automatically extracts functions, variables, types, and decompile
 
 # 2. Extract the archive
 unzip ghidra-unstrip-linux.zip
-cd ghidra-unstrip/
 
 # 3. Add to Ghidra
 # In Ghidra: Window → Script Manager → Manage Script Directories (button with folder icon)
@@ -28,7 +30,7 @@ cd ghidra-unstrip/
 
 **That's it!** The script will now appear in Ghidra's Script Manager.
 
-> **Note:** The release includes the pre-built `add_symbols` binary and the required library - libdwarf.so.
+> **Note:** The release includes the pre-built `add_symbols` binary and the required library - `libdwarf.so`.
 
 ### Usage
 
@@ -48,7 +50,7 @@ binary_symbols.c           # Decompiled source code
 
 ---
 
-## 🔍 Yet another tool
+## Yet another tool
 
 Yes, there are other excellent tools that inspired this project:
 
@@ -67,11 +69,11 @@ Yes, there are other excellent tools that inspired this project:
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 
 ---
 
-*Happy Reversing! 🔧*
+*Happy Reversing!*

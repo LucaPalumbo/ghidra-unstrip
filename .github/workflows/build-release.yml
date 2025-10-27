@@ -9,19 +9,7 @@ on:
 jobs:
   build:
     name: Build binaries
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: add_symbols-linux
-            exe_suffix: ""
-          - os: windows-latest
-            artifact_name: add_symbols-win.exe
-            exe_suffix: ".exe"
-          - os: macos-latest
-            artifact_name: add_symbols-macos
-            exe_suffix: ""
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -44,24 +32,24 @@ jobs:
       - name: Prepare release package
         shell: bash
         run: |
-          mkdir -p release_package
-          mv dist/add_symbols${{ matrix.exe_suffix }} release_package/add_symbols${{ matrix.exe_suffix }}
+          mkdir -p release_package/ghidra-unstrip/lib
+          mv dist/add_symbols release_package/ghidra-unstrip/add_symbols
+          cp unstrip.py release_package/ghidra-unstrip/unstrip.py
+          cp lib/elf.py release_package/ghidra-unstrip/lib/
+          cp lib/libdwarf_producer.py release_package/ghidra-unstrip/lib/
+          cp lib/libdwarf.so release_package/ghidra-unstrip/lib/
 
       - name: Create ZIP archive
         shell: bash
         run: |
           cd release_package
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a ../${{ matrix.artifact_name }}.zip *
-          else
-            zip -r ../${{ matrix.artifact_name }}.zip *
-          fi
+          zip -r ../ghidra-unstrip-linux.zip ghidra-unstrip/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.zip
+          name: ghidra-unstrip-linux
+          path: ghidra-unstrip-linux.zip
 
   release:
     name: Create GitHub Release
@@ -87,10 +75,11 @@ jobs:
           body: |
             Automatic release for version ${{ github.ref_name }}
 
-            This archive contains the add_symbols standalone executable.
+            This archive contains:
+            - add_symbols: standalone executable (Linux)
+            - unstrip.py: Ghidra script
+            - lib/: required libraries (elf.py, libdwarf_producer.py, libdwarf.so)
             
-            Download the appropriate version for your platform and extract the archive.
+            Extract and use with Ghidra.
           files: |
-            dist/add_symbols-linux/add_symbols-linux.zip
-            dist/add_symbols-macos/add_symbols-macos.zip
-            dist/add_symbols-win.exe/add_symbols-win.exe.zip
+            dist/ghidra-unstrip-linux/ghidra-unstrip-linux.zip

@@ -161,8 +161,8 @@ def extract_symbols_to_csv(program, output_csv_path):
     # Filter symbols early
     symbol_table = program.getSymbolTable()
     symbols = [
-        s for s in symbol_table.getDefinedSymbols()
-        if not s.isDynamic() and not s.isExternal()
+        s for s in symbol_table.getAllSymbols(True)
+        if not s.isExternal()
     ]
     
     print("  Found %d symbols to export" % len(symbols))
@@ -181,99 +181,6 @@ def extract_symbols_to_csv(program, output_csv_path):
             info["binding"] if info["binding"] is not None else "",
             info["ndx"],
         ])
-    
-    # Extract strings from data sections (.rodata, .data, etc.)
-    print("  Extracting strings from data sections...")
-    string_count = 0
-    memory = program.getMemory()
-    
-    # Search for strings in all data sections
-    for block in memory.getBlocks():
-        # Only data sections (not executable, not overlay, not external)
-        if not block.isExecute() and not block.isOverlay() and not block.isExternalBlock():
-            print("    Scanning section: %s" % block.getName())
-            
-            # Iterate over all defined data in this section
-            data_iter = listing.getDefinedData(block.getStart(), True)
-            
-            try:
-                while data_iter.hasNext():
-                    data = data_iter.next()
-                    
-                    # Check if it's a string
-                    if data.hasStringValue():
-                        try:
-                            # Get the string value
-                            string_value = data.getValue()
-                            if string_value is None:
-                                continue
-                            
-                            # Convert to Python string
-                            str_content = str(string_value)
-                            
-                            # Skip empty or too short strings
-                            if len(str_content) < 2:
-                                continue
-                            
-                            # Create symbol name from string
-                            # First 22 chars + "..." if longer than 25
-                            if len(str_content) > 25:
-                                symbol_name = str_content[:22] + "..."
-                            else:
-                                symbol_name = str_content
-                            
-                            # Sanitize the name (remove problematic characters)
-                            # Replace spaces and special characters with underscores
-                            symbol_name = symbol_name.replace(" ", "_")
-                            symbol_name = symbol_name.replace("\n", "\\n")
-                            symbol_name = symbol_name.replace("\t", "\\t")
-                            symbol_name = symbol_name.replace("\r", "\\r")
-                            symbol_name = symbol_name.replace("\"", "\\\"")
-                            symbol_name = symbol_name.replace("'", "\\'")
-                            symbol_name = symbol_name.replace(",", " ")
-                            
-                            # Check that a symbol doesn't already exist at this address
-                            # Use max(..., 0) to avoid negative addresses
-                            addr = max(data.getAddress().getOffset() - base_address, 0)
-                            
-                            # Check if there's already a symbol with this address in rows
-                            already_exists = False
-                            for row in rows[1:]:  # Skip header
-                                if row[1] == hex(addr):
-                                    already_exists = True
-                                    break
-                            
-                            if already_exists:
-                                continue
-                            
-                            # Determine section index
-                            ndx = 0
-                            for start, end, idx in section_map:
-                                if start <= addr < end:
-                                    ndx = idx
-                                    break
-                            
-                            # Add the string as a symbol
-                            rows.append([
-                                symbol_name,
-                                hex(addr),
-                                "Label",  # Special type for strings
-                                data.getLength(),
-                                "local",  # Strings are typically local
-                                ndx,
-                            ])
-                            
-                            string_count += 1
-                            
-                        except Exception as e:
-                            # Ignore errors on individual strings
-                            pass
-                            
-            except Exception as e:
-                print("    [WARN] Error scanning section %s: %s" % (block.getName(), str(e)))
-    
-    print("  Found %d additional strings" % string_count)
-    print("  Total symbols: %d" % (len(rows) - 1))  # -1 for header
     
     # Write CSV
     with open(output_csv_path, "w") as f:

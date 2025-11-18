@@ -50,7 +50,6 @@ from libdwarf_producer import (
     DW_OP_fbreg,
 )
 import libdwarf_producer  # Per accedere dinamicamente a DW_OP_bregN
-from elf import add_sections_to_elf
 
 # Import for symbol table (CSV and subprocess)
 import csv
@@ -748,8 +747,8 @@ def create_dwarf_from_ghidra(input_path_override=None):
             total_size += len(data)
         print("   Total: %d bytes" % total_size)
         
-        # 10. WRITE TO ELF
-        print("\n11. Writing DWARF to ELF...")
+        # 10. FILTER AND SAVE SECTIONS TO PICKLE
+        print("\n11. Saving DWARF sections to pickle...")
         
         # Filter relocation sections
         filtered_sections = []
@@ -757,11 +756,16 @@ def create_dwarf_from_ghidra(input_path_override=None):
             if not section_name.startswith('.rel.') and not section_name.startswith('.rela.'):
                 filtered_sections.append((section_name, section_bytes))
         
+        # Save to pickle file
+        pickle_path = input_path + "_sections.pkl"
         try:
-            add_sections_to_elf(input_path, output_path, filtered_sections)
-            print("   ✓ ELF written: %s" % output_path)
+            import pickle
+            with open(pickle_path, 'wb') as f:
+                pickle.dump(filtered_sections, f)
+            print("   ✓ Sections saved to pickle: %s" % pickle_path)
+            print("   ✓ Saved %d sections (filtered relocation sections)" % len(filtered_sections))
         except Exception as e:
-            print("   ✗ ELF write ERROR: %s" % str(e))
+            print("   ✗ Pickle write ERROR: %s" % str(e))
             import traceback
             traceback.print_exc()
             return None
@@ -770,15 +774,12 @@ def create_dwarf_from_ghidra(input_path_override=None):
         print("✓✓✓ COMPLETED SUCCESSFULLY!")
         print("=" * 70)
         print("\nFiles created:")
-        print("  - %s (ELF with DWARF)" % output_path)
+        print("  - %s (pickle with DWARF sections)" % pickle_path)
         print("  - %s (source code)" % source_file)
-        print("\nVerify with GDB:")
-        print("  $ gdb %s" % output_path)
-        print("  (gdb) info functions")
-        print("  (gdb) list main")
-        print("  (gdb) break main")
+        print("\nNext step:")
+        print("  Use add_symbols_standalone.py to add symbols and DWARF sections to ELF")
         
-        return output_path
+        return pickle_path
 
 
 def add_symbols_and_dwarf():
@@ -786,8 +787,8 @@ def add_symbols_and_dwarf():
     Main function that adds both symbol table and DWARF to the binary.
     Complete workflow:
       1. Extract symbols from Ghidra -> CSV
-      2. Add symbols to binary using LIEF -> binary_symbols
-      3. Add DWARF to binary with symbols -> binary_symbols.dwarf (final)
+      2. Generate DWARF sections from Ghidra -> pickle
+      3. Call add_symbols_standalone to add both symbols and DWARF -> final ELF
     
     Returns:
         Path to final file (with symbols + DWARF)
@@ -802,98 +803,112 @@ def add_symbols_and_dwarf():
         return None
     
     input_path = curr.executablePath
-    
-    # Determine path to add_symbols binary and CSV
     script_dir = os.path.dirname(script_path)
-    add_symbols_binary = os.path.join(script_dir, "dist", "add_symbols")
+    
+    # Output paths
     csv_path = input_path + "_symbols.csv"
+    pickle_path = input_path + "_sections.pkl"
+    final_output = input_path + ".unstripped"
     
-    # STEP 1 & 2: Extract symbols from Ghidra and add them to binary
+    # STEP 1: Extract symbols from Ghidra
     print("\n" + "=" * 70)
-    print("STEP 1-2: SYMBOL TABLE EXTRACTION & ADDITION")
-    print("=" * 70)
-    
-    symbols_elf_path = input_path + "_symbols"
-    
-    # Determine path to add_symbols binary
-    script_dir = os.path.dirname(script_path)
-    add_symbols_binary = os.path.join(script_dir, "dist", "add_symbols")
-    
-    # Check if binary exists
-    if not os.path.exists(add_symbols_binary):
-        print("\n[WARN] add_symbols binary not found: %s" % add_symbols_binary)
-        print("[WARN] Compile with: ./build_add_symbols.sh")
-        print("[INFO] Continuing with DWARF on original binary...")
-        symbols_elf_path = input_path  # Fallback: use original binary
-    else:
-        try:
-            print("\n[SYMBOL_TABLE] Extracting symbols from Ghidra...")
-            
-            # Extract symbols from Ghidra and save to CSV
-            num_symbols = extract_symbols_to_csv(curr, csv_path)
-            print("  Extracted %d symbols" % num_symbols)
-            
-            if num_symbols == 0:
-                print("  [WARN] No symbols extracted from Ghidra")
-                print("[INFO] Continuing with DWARF on original binary...")
-                symbols_elf_path = input_path
-            else:
-                # Call external binary to add symbols
-                print("\n[SYMBOL_TABLE] Calling add_symbols binary...")
-                success = call_add_symbols_binary(add_symbols_binary, input_path, csv_path, symbols_elf_path)
-                
-                if success:
-                    print("\n✓ Symbols added to binary: %s" % symbols_elf_path)
-                else:
-                    print("\n✗ ERROR adding symbols")
-                    print("[INFO] Continuing with DWARF on original binary...")
-                    symbols_elf_path = input_path  # Fallback
-                    
-        except Exception as e:
-            print("\n✗✗✗ EXCEPTION adding symbols!")
-            print("Error type: %s" % type(e).__name__)
-            print("Message: %s" % str(e))
-            import traceback
-            traceback.print_exc()
-            print("\n[INFO] Continuing with DWARF on original binary...")
-            symbols_elf_path = input_path  # Fallback: use original binary
-    
-    # STEP 3: Add DWARF to binary with symbols
-    print("\n" + "=" * 70)
-    print("STEP 3: ADDING DWARF")
+    print("STEP 1: SYMBOL TABLE EXTRACTION")
     print("=" * 70)
     
     try:
-        dwarf_output = create_dwarf_from_ghidra(input_path_override=symbols_elf_path)
+        print("\n[SYMBOL_TABLE] Extracting symbols from Ghidra...")
+        num_symbols = extract_symbols_to_csv(curr, csv_path)
+        print("  ✓ Extracted %d symbols to: %s" % (num_symbols, csv_path))
         
-        if dwarf_output:
+        if num_symbols == 0:
+            print("  [WARN] No symbols extracted from Ghidra")
+            return None
+            
+    except Exception as e:
+        print("\n✗ EXCEPTION extracting symbols!")
+        print("Error: %s" % str(e))
+        import traceback
+        traceback.print_exc()
+        return None
+    
+    # STEP 2: Generate DWARF sections
+    print("\n" + "=" * 70)
+    print("STEP 2: DWARF GENERATION")
+    print("=" * 70)
+    
+    try:
+        pickle_result = create_dwarf_from_ghidra(input_path_override=input_path)
+        
+        if not pickle_result:
+            print("\n✗ ERROR creating DWARF sections")
+            return None
+        
+        print("  ✓ DWARF sections saved to: %s" % pickle_result)
+        
+    except Exception as e:
+        print("\n✗ EXCEPTION creating DWARF!")
+        print("Error: %s" % str(e))
+        import traceback
+        traceback.print_exc()
+        return None
+    
+    # STEP 3: Call add_symbols_standalone to combine everything
+    print("\n" + "=" * 70)
+    print("STEP 3: ADDING SYMBOLS + DWARF TO ELF")
+    print("=" * 70)
+    
+    add_symbols_binary = os.path.join(script_dir, "dist", "add_symbols")
+    
+    if not os.path.exists(add_symbols_binary):
+        print("\n[ERROR] add_symbols binary not found: %s" % add_symbols_binary)
+        print("[ERROR] Compile with: ./build_add_symbols.sh")
+        return None
+    
+    try:
+        print("\n[INFO] Calling add_symbols_standalone binary...")
+        print("  Binary: %s" % add_symbols_binary)
+        print("  Input:  %s" % input_path)
+        print("  CSV:    %s" % csv_path)
+        print("  Pickle: %s" % pickle_path)
+        print("  Output: %s" % final_output)
+        
+        result = subprocess.call([
+            add_symbols_binary,
+            input_path,
+            csv_path,
+            pickle_path,
+            final_output
+        ])
+        
+        if result == 0:
             print("\n" + "=" * 70)
             print("✓✓✓ COMPLETE PROCESS!")
             print("=" * 70)
             print("\nFiles created:")
             print("  1. %s (CSV symbols)" % csv_path)
-            print("  2. %s (ELF + symbol table)" % symbols_elf_path)
-            print("  3. %s (ELF + symbol table + DWARF) ← FINAL" % dwarf_output)
-            print("  4. %s.c (decompiled source code)" % symbols_elf_path)
+            print("  2. %s (pickle DWARF sections)" % pickle_path)
+            print("  3. %s (ELF + symbols + DWARF) ← FINAL" % final_output)
+            print("  4. %s.c (decompiled source code)" % (input_path))
             print("\nVerify symbols:")
-            print("  $ nm %s | head" % dwarf_output)
-            print("  $ readelf -s %s | head" % dwarf_output)
+            print("  $ nm %s | head" % final_output)
+            print("  $ readelf -s %s | head" % final_output)
             print("\nVerify DWARF:")
-            print("  $ readelf --debug-dump=info %s | head -50" % dwarf_output)
+            print("  $ readelf --debug-dump=info %s | head -50" % final_output)
             print("\nDebug with GDB:")
-            print("  $ gdb %s" % dwarf_output)
+            print("  $ gdb %s" % final_output)
             print("  (gdb) info functions")
             print("  (gdb) info variables")
             print("  (gdb) list main")
             print("  (gdb) break main")
             
-            return dwarf_output
+            return final_output
         else:
-            print("\n✗ ERROR creating DWARF")
+            print("\n✗ ERROR: add_symbols_standalone failed (exit code: %d)" % result)
             return None
     
     except Exception as e:
-        print("\n✗✗✗ FATAL ERROR creating DWARF: %s" % str(e))
+        print("\n✗ EXCEPTION calling add_symbols_standalone!")
+        print("Error: %s" % str(e))
         import traceback
         traceback.print_exc()
         return None

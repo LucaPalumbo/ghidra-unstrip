@@ -178,87 +178,56 @@ def add_symbols_to_elf(input_elf, symbols, output_elf):
     
     return added
 
-
 def add_sections_to_elf(from_file, to_file, sections):
-    """
-    Aggiunge sezioni a un file ELF usando LIEF.
-    
-    Args:
-        from_file: Path del file ELF di input
-        to_file: Path del file ELF di output
-        sections: Lista di tuple (name, content) dove:
-                  - name: Nome della sezione (str)
-                  - content: Contenuto della sezione (bytes)
-    
-    Returns:
-        True se l'operazione ha successo, False altrimenti
-    """
-    try:
-        import lief
-    except ImportError:
-        print("[ERRORE] LIEF non installato!")
-        print("        Installa con: pip install lief")
-        return False
-    
-    print(f"[INFO] Parsing ELF: {from_file}")
-    
-    if not os.path.exists(from_file):
-        print(f"[ERRORE] File ELF non trovato: {from_file}")
-        return False
-    
-    elf = lief.parse(from_file)
-    if not isinstance(elf, lief.ELF.Binary):
-        print("[ERRORE] Non è un binario ELF valido")
-        return False
-    
-    print(f"[INFO] ELF parsato: {elf.header.machine_type}")
-    
-    added = 0
-    updated = 0
-    
-    for name, content in sections:
-        # Assicurati che name sia una stringa e content sia bytes
-        if isinstance(name, bytes):
-            name = name.decode('utf-8')
-        if isinstance(content, str):
-            content = content.encode('utf-8')
-        
-        # Verifica se la sezione esiste già
-        existing_section = None
-        try:
-            existing_section = elf.get_section(name)
-        except:
-            pass
-        
-        if existing_section:
-            # Aggiorna sezione esistente
-            print(f"[INFO] Aggiornamento sezione esistente: {name}")
-            existing_section.content = list(content)
-            updated += 1
-        else:
-            # Crea nuova sezione
-            print(f"[INFO] Aggiunta nuova sezione: {name} ({len(content)} bytes)")
-            section = lief.ELF.Section()
-            section.name = name
-            section.content = list(content)
-            section.type = lief.ELF.Section.TYPE.PROGBITS
-            section.flags = lief.ELF.Section.FLAGS.ALLOC
-            
-            try:
-                elf.add(section)
-                added += 1
-            except Exception as e:
-                print(f"[WARN] Impossibile aggiungere sezione '{name}': {e}")
-    
-    print(f"[INFO] Sezioni aggiunte: {added}, aggiornate: {updated}")
-    
-    # Scrivi output
-    print(f"[INFO] Scrittura ELF: {to_file}")
-    elf.write(to_file)
-    print(f"[INFO] ✓ Completato: {to_file}")
-    
-    return True
+    import lief
+    binary = lief.parse(from_file)
+    if not binary:
+        raise RuntimeError(f"Failed to parse ELF file: {from_file}")
 
+    for name, content in sections:
+        # 1. Normalize name
+        if isinstance(name, bytes):
+            section_name = name.decode('utf-8')
+        else:
+            section_name = name
+            
+        # 2. Prepare content as list of uint8
+        # LIEF requires a list of integers, not a bytes object
+        content_list = list(content)
+
+        # 3. Clean up existing section to avoid corruption/size mismatches
+        # Modifying .content in place is risky if the new size is vastly different
+        # It is safer to remove the old reference and create a fresh one.
+        existing_section = binary.get_section(section_name)
+        if existing_section:
+            print(f"Removing existing section to overwrite: {section_name}")
+            binary.remove(existing_section)
+
+        print(f"Adding section: {section_name} ({len(content_list)} bytes)")
+
+        # 4. Create the new section
+        new_section = lief.ELF.Section(section_name)
+        new_section.content = content_list
+        
+        # PROGBITS means the section contains data (as opposed to uninitialized NOBITS)
+        new_section.type = lief.ELF.Section.TYPE.PROGBITS
+        
+        # Flags = 0 is Critical. 
+        # We do NOT want SHF_ALLOC. Debug info lives on disk, not in RAM.
+        new_section.flags = 0 
+        
+        # Align generic debug sections to 1 byte
+        new_section.alignment = 1
+
+        # 5. Add to binary with loaded=False
+        # loaded=False tells LIEF: "Do not create a PT_LOAD segment for this."
+        # This appends the data to the end of the file and points the SH header there.
+        binary.add(new_section, loaded=False)
+
+    # 6. Write to file
+    binary.write(to_file)
+    print(f"Successfully wrote modified ELF to {to_file}")
+    return 1
 
 def main():
     """Entry point principale"""

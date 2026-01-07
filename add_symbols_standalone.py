@@ -293,7 +293,7 @@ def main():
     print("\n" + "=" * 70)
     print("STEP 2: Aggiunta sezioni DWARF")
     print("=" * 70)
-    success = add_sections_to_elf(output_elf, output_elf+'1', sections)
+    success = add_sections_to_elf(output_elf, output_elf+'.dwarf', sections)
     
     if not success:
         print("\n[ERRORE] Errore nell'aggiunta delle sezioni DWARF!")

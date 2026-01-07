@@ -44,10 +44,10 @@ unzip ghidra-unstrip-linux.zip
 **Output files:**
 
 ```
-binary_symbols.csv         # Extracted symbols (CSV format)
-binary_symbols             # ELF with symbol table
-binary_symbols.dwarf       # ELF with symbols + DWARF (FINAL)
-binary_symbols.c           # Decompiled source code
+binary_symbols.csv          # Extracted symbols (CSV format)
+binary.unstripped           # ELF with symbol table
+binary.unstripped.dwarf     # ELF with symbols + DWARF (FINAL)
+binary.c                    # Decompiled source code
 ```
 
 <div align="center">
